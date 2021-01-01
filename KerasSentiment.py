@@ -98,6 +98,65 @@ def my_categorical_crossentropy(y_true, y_pred, margin=0.6, from_logits=False, a
                                                        logits=y_pred)
 
 
+def dice_coef(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred = K.cast(y_pred, 'float32')
+    y_pred_f = K.cast(K.greater(K.flatten(y_pred), 0.5), 'float32')
+    intersection = y_true_f * y_pred_f
+    score = 2. * K.sum(intersection) / (K.sum(y_true_f) + K.sum(y_pred_f))
+    return score
+
+
+def dice_loss(y_true, y_pred):
+    smooth = 1.
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = y_true_f * y_pred_f
+    score = (2. * K.sum(intersection) + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    return 1. - score
+
+
+def binary_focal_loss(gamma=2., alpha=.25):
+    """
+    Binary form of focal loss.
+      FL(p_t) = -alpha * (1 - p_t)**gamma * log(p_t)
+      where p = sigmoid(x), p_t = p or 1 - p depending on if the label is 1 or 0, respectively.
+    References:
+        https://arxiv.org/pdf/1708.02002.pdf
+    Usage:
+     model.compile(loss=[binary_focal_loss(alpha=.25, gamma=2)], metrics=["accuracy"], optimizer=adam)
+    """
+
+    def binary_focal_loss_fixed(y_true, y_pred):
+        """
+        :param y_true: A tensor of the same shape as `y_pred`
+        :param y_pred:  A tensor resulting from a sigmoid
+        :return: Output tensor.
+        """
+        y_true = tf.cast(y_true, tf.float32)
+        # Define epsilon so that the back-propagation will not result in NaN for 0 divisor case
+        epsilon = K.epsilon()
+        # Add the epsilon to prediction value
+        # y_pred = y_pred + epsilon
+        # Clip the prediciton value
+        y_pred = K.clip(y_pred, epsilon, 1.0 - epsilon)
+        # Calculate p_t
+        p_t = tf.where(K.equal(y_true, 1), y_pred, 1 - y_pred)
+        # Calculate alpha_t
+        alpha_factor = K.ones_like(y_true) * alpha
+        alpha_t = tf.where(K.equal(y_true, 1), alpha_factor, 1 - alpha_factor)
+        # Calculate cross entropy
+        cross_entropy = -K.log(p_t)
+        weight = alpha_t * K.pow((1 - p_t), gamma)
+        # Calculate focal loss
+        loss = weight * cross_entropy
+        # Sum the losses in mini_batch
+        loss = K.mean(K.sum(loss, axis=1))
+        return loss
+
+    return binary_focal_loss_fixed
+
+
 class Evaluate(Callback):
     """
     Warmup
@@ -590,7 +649,7 @@ elif model_type == "RCNNVariant":
 model.compile(loss=my_categorical_crossentropy,
               # optimizer=LazyOptimizer(keras.optimizers.Adam(), ["embedding"]),
               optimizer=keras.optimizers.Adam(),
-              metrics=['categorical_accuracy'])
+              metrics=['accuracy'])
 model.summary()
 
 
